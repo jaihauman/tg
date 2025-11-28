@@ -1,107 +1,125 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>My Video Website</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #111;
-      color: #fff;
-      margin: 0;
-      padding: 0;
-    }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reels Viewer</title>
 
-    header {
-      text-align: center;
-      padding: 20px;
-      background: #222;
-      font-size: 24px;
-      font-weight: bold;
-    }
+    <style>
+        body {
+            margin: 0;
+            background: #000;
+            overflow: hidden;
+        }
 
-    #videoContainer {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 20px;
-      padding: 20px;
-    }
+        #reel-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            overflow: hidden;
+        }
 
-    .video-card {
-      background: #222;
-      border-radius: 12px;
-      overflow: hidden;
-      width: 300px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-      transition: transform 0.2s;
-    }
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
 
-    .video-card:hover {
-      transform: scale(1.05);
-    }
-
-    video {
-      width: 100%;
-      height: auto;
-      display: block;
-      background: #000;
-    }
-
-    .video-info {
-      padding: 10px;
-    }
-
-    .video-info p {
-      margin: 5px 0;
-      font-size: 14px;
-    }
-  </style>
+        .loading {
+            color: white;
+            font-size: 24px;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+    </style>
 </head>
 <body>
-  <header>My Video Website</header>
-  <div id="videoContainer">Loading videos...</div>
 
-  <script>
-    const apiUrl = '/api/videos'; // Serverless endpoint
+    <div id="reel-container">
+        <div class="loading">Loading...</div>
+    </div>
 
-    async function fetchVideos() {
-      try {
-        const response = await fetch(apiUrl);
-        const data = await response.json();
+<script>
+let videos = [];
+let currentIndex = 0;
+let isFetching = false;
 
-        // Normalize data as array
-        const videos = Array.isArray(data) ? data : [data];
+async function fetchVideos() {
+    try {
+        let res = await fetch("/api/videos");
 
-        const container = document.getElementById('videoContainer');
-        container.innerHTML = '';
+        let text = await res.text();
 
-        videos.forEach(video => {
-          const card = document.createElement('div');
-          card.classList.add('video-card');
+        try {
+            videos = JSON.parse(text);
+        } catch {
+            console.error("Server returned non-JSON:", text);
+            return;
+        }
 
-          card.innerHTML = `
-            <video controls preload="metadata">
-              <source src="${video.url}" type="video/mp4">
-              Your browser does not support HTML5 video.
-            </video>
-            <div class="video-info">
-              <p><strong>Width:</strong> ${video.width}</p>
-              <p><strong>Height:</strong> ${video.height}</p>
-              <p><strong>Duration:</strong> ${video.duration}s</p>
-            </div>
-          `;
+        loadVideo(0);
 
-          container.appendChild(card);
-        });
-      } catch (err) {
-        console.error('Error fetching videos:', err);
-        document.getElementById('videoContainer').innerHTML = '<p style="color:red;">Failed to load videos.</p>';
-      }
+    } catch (e) {
+        console.error("Fetch failed:", e);
     }
+}
 
-    fetchVideos();
-  </script>
+function loadVideo(index) {
+    if (!videos.length) return;
+
+    const container = document.getElementById("reel-container");
+    container.innerHTML = "";
+
+    let video = document.createElement("video");
+    video.src = videos[index].url;
+    video.autoplay = true;
+    video.loop = true;
+    video.muted = false;
+    video.controls = false;
+    video.playsInline = true;
+
+    container.appendChild(video);
+
+    preloadNext(index + 1);
+}
+
+function preloadNext(nextIndex) {
+    if (!videos[nextIndex]) return;
+
+    let v = document.createElement("video");
+    v.src = videos[nextIndex].url;
+    v.preload = "auto";
+}
+
+document.addEventListener("wheel", (e) => {
+    if (e.deltaY > 0) {
+        nextReel();
+    } else {
+        prevReel();
+    }
+});
+
+function nextReel() {
+    if (currentIndex < videos.length - 1) {
+        currentIndex++;
+        loadVideo(currentIndex);
+    }
+}
+
+function prevReel() {
+    if (currentIndex > 0) {
+        currentIndex--;
+        loadVideo(currentIndex);
+    }
+}
+
+fetchVideos();
+</script>
+
 </body>
 </html>
