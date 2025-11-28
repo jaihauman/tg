@@ -1,128 +1,125 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Reels Style Video Feed</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reels Viewer</title>
 
-  <style>
-    body {
-      margin: 0;
-      background: #000;
-      overflow: hidden;
-      font-family: Arial, sans-serif;
-    }
+    <style>
+        body {
+            margin: 0;
+            background: #000;
+            overflow: hidden;
+        }
 
-    .reels-container {
-      height: 100vh;
-      width: 100vw;
-      overflow-y: scroll;
-      scroll-snap-type: y mandatory;
-    }
+        #reel-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            overflow: hidden;
+        }
 
-    .reel {
-      height: 100vh;
-      width: 100%;
-      scroll-snap-align: start;
-      position: relative;
-      background: #000;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
 
-    video {
-      height: 100%;
-      width: auto;
-      object-fit: cover;
-    }
-
-    .loading {
-      color: white;
-      position: absolute;
-      bottom: 20px;
-      text-align: center;
-      width: 100%;
-      font-size: 18px;
-    }
-  </style>
+        .loading {
+            color: white;
+            font-size: 24px;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+    </style>
 </head>
 <body>
 
-  <div class="reels-container" id="reels"></div>
+    <div id="reel-container">
+        <div class="loading">Loading...</div>
+    </div>
 
-  <script>
-    const apiUrl = '/api/videos';
-    let videoList = [];
-    let loadedCount = 0;
+<script>
+let videos = [];
+let currentIndex = 0;
+let isFetching = false;
 
-    async function loadVideos() {
-      try {
-        const res = await fetch(apiUrl);
-        const data = await res.json();
+async function fetchVideos() {
+    try {
+        let res = await fetch("/api/videos");
 
-        videoList = Array.isArray(data) ? data : [data];
+        let text = await res.text();
 
-        createReels();
-      } catch (e) {
-        console.error("API error:", e);
-      }
+        try {
+            videos = JSON.parse(text);
+        } catch {
+            console.error("Server returned non-JSON:", text);
+            return;
+        }
+
+        loadVideo(0);
+
+    } catch (e) {
+        console.error("Fetch failed:", e);
     }
+}
 
-    function createReels() {
-      const container = document.getElementById("reels");
+function loadVideo(index) {
+    if (!videos.length) return;
 
-      videoList.forEach((vid, index) => {
-        const reel = document.createElement("div");
-        reel.className = "reel";
+    const container = document.getElementById("reel-container");
+    container.innerHTML = "";
 
-        reel.innerHTML = `
-          <video 
-            data-index="${index}"
-            playsinline 
-            webkit-playsinline 
-            muted 
-            preload="none"
-          >
-            <source src="${vid.url}" type="video/mp4">
-          </video>
-          <div class="loading">Loading...</div>
-        `;
+    let video = document.createElement("video");
+    video.src = videos[index].url;
+    video.autoplay = true;
+    video.loop = true;
+    video.muted = false;
+    video.controls = false;
+    video.playsInline = true;
 
-        container.appendChild(reel);
-      });
+    container.appendChild(video);
 
-      setupAutoPlay();
+    preloadNext(index + 1);
+}
+
+function preloadNext(nextIndex) {
+    if (!videos[nextIndex]) return;
+
+    let v = document.createElement("video");
+    v.src = videos[nextIndex].url;
+    v.preload = "auto";
+}
+
+document.addEventListener("wheel", (e) => {
+    if (e.deltaY > 0) {
+        nextReel();
+    } else {
+        prevReel();
     }
+});
 
-    function setupAutoPlay() {
-      const videos = document.querySelectorAll("video");
-
-      const observer = new IntersectionObserver((entries) => {
-        entries.forEach((entry) => {
-          const video = entry.target;
-          const loadingText = video.parentElement.querySelector(".loading");
-
-          if (entry.isIntersecting) {
-            if (video.readyState === 0) {
-              video.addEventListener("loadeddata", () => {
-                loadingText.style.display = "none";
-              });
-            }
-
-            video.play().catch(() => {});
-          } else {
-            video.pause();
-            video.currentTime = 0;
-          }
-        });
-      }, { threshold: 0.75 });
-
-      videos.forEach((v) => observer.observe(v));
+function nextReel() {
+    if (currentIndex < videos.length - 1) {
+        currentIndex++;
+        loadVideo(currentIndex);
     }
+}
 
-    loadVideos();
-  </script>
+function prevReel() {
+    if (currentIndex > 0) {
+        currentIndex--;
+        loadVideo(currentIndex);
+    }
+}
+
+fetchVideos();
+</script>
 
 </body>
 </html>
