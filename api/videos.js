@@ -1,125 +1,98 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Reels Viewer</title>
+// api/videos.js
+// Vercel serverless function to proxy https://ok.newhqmovies.workers.dev
+// - Uses global fetch (no node-fetch)
+// - Adds timeout, retries, headers, and helpful error JSON
 
-    <style>
-        body {
-            margin: 0;
-            background: #000;
-            overflow: hidden;
-        }
+const UPSTREAM = 'https://ok.newhqmovies.workers.dev';
+const FETCH_TIMEOUT_MS = 7000;
+const RETRIES = 2; // number of extra attempts (total attempts = RETRIES + 1)
+const RAW_PREVIEW_LEN = 800; // how much raw text to include in error responses
 
-        #reel-container {
-            width: 100vw;
-            height: 100vh;
-            position: relative;
-            overflow: hidden;
-        }
+function timeoutFetch(resource, options = {}, timeout = FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  return fetch(resource, { ...options, signal: controller.signal }).finally(() => clearTimeout(id));
+}
 
-        video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            position: absolute;
-            top: 0;
-            left: 0;
-        }
-
-        .loading {
-            color: white;
-            font-size: 24px;
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-        }
-    </style>
-</head>
-<body>
-
-    <div id="reel-container">
-        <div class="loading">Loading...</div>
-    </div>
-
-<script>
-let videos = [];
-let currentIndex = 0;
-let isFetching = false;
-
-async function fetchVideos() {
+async function fetchWithRetries(url, opts = {}, attempts = RETRIES + 1) {
+  let lastErr = null;
+  for (let i = 0; i < attempts; i++) {
     try {
-        let res = await fetch("/api/videos");
-
-        let text = await res.text();
-
-        try {
-            videos = JSON.parse(text);
-        } catch {
-            console.error("Server returned non-JSON:", text);
-            return;
-        }
-
-        loadVideo(0);
-
-    } catch (e) {
-        console.error("Fetch failed:", e);
+      const res = await timeoutFetch(url, opts);
+      return res;
+    } catch (err) {
+      lastErr = err;
+      // small backoff
+      await new Promise((r) => setTimeout(r, 200 * (i + 1)));
     }
+  }
+  throw lastErr;
 }
 
-function loadVideo(index) {
-    if (!videos.length) return;
+export default async function handler(req, res) {
+  // Allow CORS from your front-end for local testing if needed
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
-    const container = document.getElementById("reel-container");
-    container.innerHTML = "";
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
 
-    let video = document.createElement("video");
-    video.src = videos[index].url;
-    video.autoplay = true;
-    video.loop = true;
-    video.muted = false;
-    video.controls = false;
-    video.playsInline = true;
+  try {
+    const fetchOptions = {
+      method: 'GET',
+      headers: {
+        // Cloudflare / Workers sometimes block non-browser user-agents
+        'User-Agent': 'Mozilla/5.0 (compatible; MyReels/1.0)',
+        'Accept': 'application/json, text/plain, */*',
+        // Add any other headers if needed (Referer, Authorization) - but only if required
+      },
+      // don't follow infinite redirects
+      redirect: 'follow',
+    };
 
-    container.appendChild(video);
+    const upstreamRes = await fetchWithRetries(UPSTREAM, fetchOptions);
 
-    preloadNext(index + 1);
-}
-
-function preloadNext(nextIndex) {
-    if (!videos[nextIndex]) return;
-
-    let v = document.createElement("video");
-    v.src = videos[nextIndex].url;
-    v.preload = "auto";
-}
-
-document.addEventListener("wheel", (e) => {
-    if (e.deltaY > 0) {
-        nextReel();
-    } else {
-        prevReel();
+    // If upstream responds non-OK, return a helpful JSON error
+    if (!upstreamRes.ok) {
+      const text = await upstreamRes.text().catch(() => '');
+      return res.status(502).json({
+        error: 'Upstream returned non-OK status',
+        upstreamStatus: upstreamRes.status,
+        upstreamStatusText: upstreamRes.statusText,
+        rawPreview: text ? text.slice(0, RAW_PREVIEW_LEN) : '',
+      });
     }
-});
 
-function nextReel() {
-    if (currentIndex < videos.length - 1) {
-        currentIndex++;
-        loadVideo(currentIndex);
+    // Read body as text first so we can safely diagnose non-JSON
+    const bodyText = await upstreamRes.text();
+
+    // Try to parse JSON
+    try {
+      const data = JSON.parse(bodyText);
+
+      // Set caching headers for Vercel edge / CDN
+      // s-maxage controls server (Vercel) caching. Adjust as needed.
+      res.setHeader('Cache-Control', 's-maxage=30, stale-while-revalidate=60');
+
+      return res.status(200).json(data);
+    } catch (parseErr) {
+      // Upstream returned something that's not valid JSON (HTML error page, etc.)
+      return res.status(502).json({
+        error: 'Invalid JSON returned by upstream API',
+        message: parseErr.message,
+        rawPreview: bodyText.slice(0, RAW_PREVIEW_LEN),
+        note: 'If this is HTML, the upstream is returning an HTML error page (Cloudflare/Worker). Try adding required headers or verify upstream.',
+      });
     }
+  } catch (err) {
+    // Network/timeout/retry failure
+    console.error('Proxy error:', err && err.message ? err.message : err);
+    return res.status(500).json({
+      error: 'Server proxy error',
+      message: err && err.message ? err.message : String(err),
+      hint: 'This typically means the server could not reach the upstream URL (timeout, DNS, or blocked).',
+    });
+  }
 }
-
-function prevReel() {
-    if (currentIndex > 0) {
-        currentIndex--;
-        loadVideo(currentIndex);
-    }
-}
-
-fetchVideos();
-</script>
-
-</body>
-</html>
