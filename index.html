@@ -1,1 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Website</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #111;
+      color: #fff;
+      margin: 0;
+      padding: 0;
+    }
 
+    header {
+      text-align: center;
+      padding: 20px;
+      background: #222;
+      font-size: 24px;
+      font-weight: bold;
+    }
+
+    #videoContainer {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 20px;
+      padding: 20px;
+    }
+
+    .video-card {
+      background: #222;
+      border-radius: 12px;
+      overflow: hidden;
+      width: 300px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      transition: transform 0.2s;
+    }
+
+    .video-card:hover {
+      transform: scale(1.05);
+    }
+
+    video {
+      width: 100%;
+      height: auto;
+      display: block;
+      background: #000;
+    }
+
+    .video-info {
+      padding: 10px;
+    }
+
+    .video-info p {
+      margin: 5px 0;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <header>My Video Website</header>
+  <div id="videoContainer"></div>
+
+  <script>
+    const apiUrl = 'https://ok.newhqmovies.workers.dev';
+
+    async function fetchVideos() {
+      try {
+        const response = await fetch(apiUrl);
+        const data = await response.json();
+
+        // Make sure data is an array
+        const videos = Array.isArray(data) ? data : [data];
+
+        const container = document.getElementById('videoContainer');
+        container.innerHTML = '';
+
+        videos.forEach(video => {
+          const card = document.createElement('div');
+          card.classList.add('video-card');
+
+          card.innerHTML = `
+            <video controls poster="" preload="metadata">
+              <source src="${video.url}" type="video/mp4">
+              Your browser does not support HTML5 video.
+            </video>
+            <div class="video-info">
+              <p><strong>Width:</strong> ${video.width}</p>
+              <p><strong>Height:</strong> ${video.height}</p>
+              <p><strong>Duration:</strong> ${video.duration}s</p>
+            </div>
+          `;
+
+          container.appendChild(card);
+        });
+      } catch (err) {
+        console.error('Error fetching videos:', err);
+        document.getElementById('videoContainer').innerHTML = '<p style="color:red;">Failed to load videos.</p>';
+      }
+    }
+
+    // Fetch videos when page loads
+    fetchVideos();
+  </script>
+</body>
+</html>  
