@@ -1,150 +1,48 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1.0" />
-<title>Reels</title>
+// api/video.js
+export const config = {
+  runtime: "edge",  // ⚡ run on Vercel Edge Network
+};
 
-<style>
-  body {
-    margin: 0;
-    background: black;
-    overflow: hidden;
-  }
+export default async function handler(req) {
+  try {
+    const url = new URL(req.url);
+    const fileUrl = url.searchParams.get("url");
 
-  .reel-container {
-    height: 100vh;
-    width: 100vw;
-    scroll-snap-type: y mandatory;
-    overflow-y: scroll;
-  }
+    if (!fileUrl) {
+      return new Response(JSON.stringify({ error: "Missing 'url' parameter" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
 
-  .reel {
-    height: 100vh;
-    width: 100vw;
-    position: relative;
-    scroll-snap-align: start;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    background: black;
-  }
-
-  video {
-    height: 100%;
-    width: 100%;
-    object-fit: cover;
-  }
-
-  /* Loading spinner */
-  .spinner {
-    position: absolute;
-    width: 60px;
-    height: 60px;
-    border: 5px solid rgba(255,255,255,0.2);
-    border-top-color: white;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-
-</style>
-</head>
-<body>
-
-<div id="container" class="reel-container"></div>
-
-<script>
-const API_URL = "https://tg-psi-ecru.vercel.app/api/videos";
-let videos = [];
-let loadedCount = 0;
-
-/* --------------------------------------------------------
-   Fetch videos fast
---------------------------------------------------------- */
-async function loadVideos() {
-  const res = await fetch(API_URL);
-  videos = await res.json();
-  loadReel(); // load first video
-}
-
-/* --------------------------------------------------------
-   Create a single reel
---------------------------------------------------------- */
-function createReel(url) {
-  const wrapper = document.createElement("div");
-  wrapper.className = "reel";
-
-  const loader = document.createElement("div");
-  loader.className = "spinner";
-
-  const video = document.createElement("video");
-  video.src = url;
-  video.loop = true;
-  video.muted = false;         // 🔥 unmuted by default
-  video.playsInline = true;
-  video.preload = "metadata";
-
-  video.addEventListener("loadeddata", () => {
-    loader.remove();
-  });
-
-  wrapper.appendChild(video);
-  wrapper.appendChild(loader);
-
-  return wrapper;
-}
-
-/* --------------------------------------------------------
-   Load reels one-by-one as user scrolls
---------------------------------------------------------- */
-function loadReel() {
-  if (loadedCount >= videos.length) return;
-
-  const url = videos[loadedCount].url;
-  const reel = createReel(url);
-
-  container.appendChild(reel);
-  observeReel(reel);
-
-  // Preload next video early
-  if (videos[loadedCount + 1]) {
-    const pre = document.createElement("video");
-    pre.src = videos[loadedCount + 1].url;
-    pre.preload = "auto";
-  }
-
-  loadedCount++;
-}
-
-/* --------------------------------------------------------
-   Intersection Observer: Autoplay + Load More
---------------------------------------------------------- */
-function observeReel(reel) {
-  const video = reel.querySelector("video");
-
-  const obs = new IntersectionObserver(entries => {
-    entries.forEach(entry => {
-      if (entry.isIntersecting) {
-        video.play().catch(e => console.log(e));
-        // Load next reel when this one appears
-        if (reel === container.lastElementChild) {
-          loadReel();
-        }
-      } else {
-        video.pause();
+    // Fetch original video from Telegram (slow)
+    const upstream = await fetch(fileUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (FastEdgeVideoCache)"
       }
     });
-  }, { threshold: 0.6 });
 
-  obs.observe(reel);
+    if (!upstream.ok) {
+      return new Response(JSON.stringify({
+        error: "Failed to fetch upstream video",
+        status: upstream.status
+      }), { status: 502 });
+    }
+
+    // ⚡ FULL EDGE CACHE
+    const headers = new Headers(upstream.headers);
+    headers.set("Cache-Control", "public, s-maxage=86400, immutable"); 
+    // cache for 24 hours
+
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers
+    });
+
+  } catch (err) {
+    return new Response(JSON.stringify({
+      error: "Edge crash",
+      message: err.message
+    }), { status: 500 });
+  }
 }
-
-loadVideos();
-</script>
-
-</body>
-</html>
