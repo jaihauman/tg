@@ -1,160 +1,352 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fast Reels</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Reels - Fast</title>
+<style>
+  :root {
+    --bg: #000;
+    --loader-size: 56px;
+  }
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--bg);
+    color: #fff;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    -webkit-font-smoothing: antialiased;
+  }
 
-  <style>
-    body {
-      margin: 0;
-      background: #000;
-      overflow-y: scroll;
-      height: 100vh;
-    }
+  /* container */
+  .feed {
+    height: 100vh;
+    width: 100%;
+    overflow-y: auto;
+    scroll-snap-type: y mandatory;
+    -webkit-overflow-scrolling: touch;
+    background: var(--bg);
+  }
 
-    .reel {
-      position: relative;
-      height: 100vh;
-      width: 100%;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      background: #000;
-      margin-bottom: 5px;
-    }
+  .post {
+    height: 100vh;
+    width: 100%;
+    position: relative;
+    scroll-snap-align: start;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+  }
 
-    .reel video {
-      height: 100%;
-      max-width: 100%;
-      object-fit: cover;
-    }
+  video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: #000;
+  }
 
-    /* 🔥 Loading spinner */
-    .loading {
-      position: absolute;
-      width: 50px;
-      height: 50px;
-      border: 4px solid rgba(255, 255, 255, 0.2);
-      border-top-color: white;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
+  /* loader */
+  .loader {
+    position: absolute;
+    width: var(--loader-size);
+    height: var(--loader-size);
+    border-radius: 50%;
+    border: 5px solid rgba(255,255,255,0.15);
+    border-top-color: #fff;
+    animation: spin .8s linear infinite;
+    z-index: 30;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
-    @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-  </style>
+  /* unmute hint button */
+  .unmute-btn {
+    position: absolute;
+    z-index: 40;
+    bottom: 24px;
+    right: 16px;
+    background: rgba(0,0,0,0.45);
+    padding: 8px 12px;
+    border-radius: 999px;
+    font-size: 14px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    border: 1px solid rgba(255,255,255,0.06);
+    cursor: pointer;
+  }
+
+  .meta {
+    position: absolute;
+    bottom: 90px;
+    left: 16px;
+    z-index: 40;
+    max-width: 70%;
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  .play-btn {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%,-50%);
+    z-index: 40;
+    background: rgba(0,0,0,0.6);
+    padding: 8px 14px;
+    border-radius: 8px;
+    display: none;
+  }
+
+</style>
 </head>
 <body>
 
-<div id="feed"></div>
+<div id="feed" class="feed"></div>
 
 <script>
-const API_URL = "https://tg-psi-ecru.vercel.app/api/videos";
+/*
+  Reels Frontend:
+  - Fetches list from /api/videos
+  - Uses /api/video?url=... to play cached video files
+  - Keeps only small number of DOM nodes to reduce memory
+  - Autoplay + unmute when visible
+  - Preloads next video
+*/
 
-const feed = document.getElementById("feed");
-let videos = [];
+const API_VIDEOS = '/api/videos';
+const API_VIDEO_PROXY = '/api/video?url=';
+
+const feedEl = document.getElementById('feed');
+
+// small sliding window of posts to keep DOM light
+const WINDOW_SIZE = 3; // previous, current, next
+let list = [];
 let currentIndex = 0;
 
-/* ------------------------------------------------------
-   1️⃣ Fetch Videos Fast
---------------------------------------------------------- */
-async function fetchVideos() {
+async function init() {
   try {
-    const res = await fetch(API_URL);
-    videos = await res.json();
-
-    if (!Array.isArray(videos)) {
-      console.error("Error: API did not return array:", videos);
-      return;
-    }
-
-    loadNextReel();
-  } catch (err) {
-    console.error("Failed to fetch:", err);
-  }
-}
-
-/* ------------------------------------------------------
-   2️⃣ Create Reel with Loading Spinner
---------------------------------------------------------- */
-function createReel(src) {
-  const wrapper = document.createElement("div");
-  wrapper.className = "reel";
-
-  const loader = document.createElement("div");
-  loader.className = "loading";
-
-  const video = document.createElement("video");
-  video.src = src;
-  video.autoplay = false;
-  video.controls = false;
-  video.loop = true;
-  video.muted = true;
-  video.preload = "metadata"; // ⚡ loads fast
-
-  /* When video is ready, remove loader */
-  video.addEventListener("canplay", () => {
-    loader.remove();
-    video.play();
-  });
-
-  wrapper.appendChild(video);
-  wrapper.appendChild(loader);
-
-  return wrapper;
-}
-
-/* ------------------------------------------------------
-   3️⃣ Add Multiple Reels + Preload next
---------------------------------------------------------- */
-function loadNextReel() {
-  if (currentIndex >= videos.length) return;
-
-  const reel = createReel(videos[currentIndex].url);
-  feed.appendChild(reel);
-
-  currentIndex++;
-
-  // Preload next video early
-  if (videos[currentIndex]) {
-    const v = document.createElement("video");
-    v.src = videos[currentIndex].url;
-    v.preload = "auto";
-  }
-}
-
-/* ------------------------------------------------------
-   4️⃣ Auto-load next reel when you scroll
---------------------------------------------------------- */
-const observer = new IntersectionObserver((entries) => {
-  entries.forEach((entry) => {
-    if (entry.isIntersecting) {
-      const video = entry.target.querySelector("video");
-      video.play();
-
-      // load next reel only when last 2 reels visible
-      if (entry.target === feed.lastElementChild) {
-        loadNextReel();
+    const r = await fetch(API_VIDEOS);
+    list = await r.json();
+    if (!Array.isArray(list)) {
+      // If API returns single object, wrap in array
+      if (list && typeof list === 'object') list = [list];
+      else {
+        console.error('API did not return an array', list);
+        feedEl.innerHTML = '<div style="padding:20px;color:#fff">No videos found.</div>';
+        return;
       }
-    } else {
-      const video = entry.target.querySelector("video");
-      video.pause();
+    }
+
+    // clamp to safe indexes and render initial window
+    renderWindow(0);
+    setupScrolling();
+  } catch (err) {
+    console.error('Failed to fetch videos:', err);
+    feedEl.innerHTML = '<div style="padding:20px;color:#fff">Failed to load videos.</div>';
+  }
+}
+
+// Render posts for index window [i-1, i, i+1]
+function renderWindow(i) {
+  currentIndex = i;
+  // compute window indices
+  const start = Math.max(0, i - 1);
+  const end = Math.min(list.length - 1, i + 1);
+
+  // clear and create only elements for window
+  feedEl.innerHTML = '';
+  for (let idx = start; idx <= end; idx++) {
+    const post = createPostElement(list[idx], idx);
+    feedEl.appendChild(post);
+  }
+
+  // scroll to the middle element if start>0 or to top if first
+  // if currentIndex==0 ensure displayed first element is at top
+  requestAnimationFrame(() => {
+    const children = feedEl.children;
+    if (children.length > 0) {
+      // If start == 0, first child is current; else middle child is current
+      const targetEl = (start === 0) ? children[0] : children[1];
+      targetEl.scrollIntoView({ behavior: 'instant', block: 'start' });
     }
   });
-}, { threshold: 0.7 });
 
-const observerInterval = setInterval(() => {
-  document.querySelectorAll(".reel").forEach(r => observer.observe(r));
-}, 1000);
+  // observe posts for autoplay/unmute
+  observePosts();
+}
 
-/* ------------------------------------------------------
-   Start
---------------------------------------------------------- */
-fetchVideos();
+// Create a post DOM node
+function createPostElement(item, index) {
+  const post = document.createElement('div');
+  post.className = 'post';
+  post.dataset.index = index;
+
+  // proxy the video url through edge cache
+  const proxied = API_VIDEO_PROXY + encodeURIComponent(item.url);
+
+  const video = document.createElement('video');
+  video.setAttribute('playsinline', '');
+  video.setAttribute('webkit-playsinline', '');
+  video.preload = 'metadata';       // fast
+  video.muted = true;               // start muted
+  video.loop = true;
+  video.src = proxied;
+
+  // loader + unmute UI
+  const loader = document.createElement('div');
+  loader.className = 'loader';
+
+  const unmuteBtn = document.createElement('button');
+  unmuteBtn.className = 'unmute-btn';
+  unmuteBtn.textContent = 'Unmute';
+  unmuteBtn.style.display = 'none';
+  unmuteBtn.onclick = () => {
+    video.muted = false;
+    unmuteBtn.style.display = 'none';
+  };
+
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.innerHTML = `<div><strong>Video ${index + 1}/${list.length}</strong></div>
+                    <div>W: ${item.width || '-'}  H: ${item.height || '-'}  Dur: ${item.duration || '-'}s</div>`;
+
+  // fallback play button if autoplay blocked
+  const playBtn = document.createElement('button');
+  playBtn.className = 'play-btn';
+  playBtn.textContent = 'Play';
+  playBtn.onclick = () => {
+    video.play().catch(() => video.muted = true);
+    playBtn.style.display = 'none';
+  };
+
+  // show loader until canplay
+  video.addEventListener('canplay', () => {
+    loader.style.display = 'none';
+  });
+  video.addEventListener('error', () => {
+    loader.style.display = 'none';
+    const errNote = document.createElement('div');
+    errNote.style.position = 'absolute';
+    errNote.style.color = '#fff';
+    errNote.style.zIndex = 40;
+    errNote.textContent = 'Video failed to load';
+    post.appendChild(errNote);
+
+    // show button to try reload
+    const reload = document.createElement('button');
+    reload.textContent = 'Retry';
+    reload.style.position = 'absolute';
+    reload.style.bottom = '24px';
+    reload.style.left = '16px';
+    reload.onclick = () => {
+      loader.style.display = 'block';
+      video.src = proxied + '&_ts=' + Date.now();
+      video.load();
+    };
+    post.appendChild(reload);
+  });
+
+  post.appendChild(video);
+  post.appendChild(loader);
+  post.appendChild(unmuteBtn);
+  post.appendChild(meta);
+  post.appendChild(playBtn);
+
+  return post;
+}
+
+// Observe posts for autopay/unmute + load next
+let io;
+function observePosts() {
+  // disconnect old observer
+  if (io) {
+    io.disconnect();
+  }
+
+  const posts = Array.from(document.querySelectorAll('.post'));
+  io = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      const post = entry.target;
+      const idx = parseInt(post.dataset.index, 10);
+      const video = post.querySelector('video');
+      const unmuteBtn = post.querySelector('.unmute-btn');
+      const playBtn = post.querySelector('.play-btn');
+
+      if (entry.isIntersecting && entry.intersectionRatio > 0.6) {
+        // when visible enough -> play & unmute
+        video.play().catch(() => {
+          // show fallback button if autoplay blocked
+          playBtn.style.display = 'block';
+        });
+
+        // unmute automatically if user explicitly interacted before (we try to unmute)
+        // we will attempt to unmute; if browser blocks sound, show button
+        video.muted = false;
+        setTimeout(() => {
+          if (video.muted || video.volume === 0) {
+            // if still muted, show unmute button
+            unmuteBtn.style.display = 'flex';
+          } else {
+            unmuteBtn.style.display = 'none';
+          }
+        }, 200);
+
+        // preload next video proactively
+        preloadIndex(idx + 1);
+
+        // if we are at the end of rendered window, shift window forward
+        // if this is the last rendered child and we have more items after, move window
+        const children = Array.from(feedEl.children);
+        const lastRenderedIndex = parseInt(children[children.length -1].dataset.index, 10);
+        if (idx === lastRenderedIndex && idx < list.length - 1) {
+          // render next window centered at next index
+          const nextCenter = Math.min(list.length - 1, idx + 1);
+          renderWindow(nextCenter);
+        }
+      } else {
+        // not visible enough -> pause and mute
+        video.pause();
+        video.muted = true;
+        playBtn.style.display = 'none';
+        unmuteBtn.style.display = 'none';
+      }
+    });
+  }, { threshold: [0.6] });
+
+  posts.forEach(p => io.observe(p));
+}
+
+// Preload next video's media (not DOM) to warm edge cache
+function preloadIndex(i) {
+  if (i < 0 || i >= list.length) return;
+  // create a background video element (not attached) to preload
+  const url = '/api/video?url=' + encodeURIComponent(list[i].url);
+  const v = document.createElement('video');
+  v.preload = 'auto';
+  v.src = url;
+  // We don't need to append to DOM; letting browser fetch is good enough
+}
+
+// Scrolling / keyboard navigation (optional)
+let lastY = 0;
+feedEl.addEventListener('wheel', (e) => {
+  // prevent too sensitive scrolls collapsing many posts
+  // default behavior is fine because of scroll-snap
+});
+
+// handle arrow keys
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown') moveOne(1);
+  if (e.key === 'ArrowUp') moveOne(-1);
+});
+
+function moveOne(dir) {
+  const newIndex = Math.min(Math.max(0, currentIndex + dir), list.length - 1);
+  renderWindow(newIndex);
+}
+
+init();
 </script>
-
 </body>
 </html>
