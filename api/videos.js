@@ -1,37 +1,28 @@
-const apiUrl = '/api/videos'; // your Vercel serverless endpoint
-
-async function fetchVideos() {
+export default async function handler(req, res) {
   try {
-    const response = await fetch(apiUrl);
-    const data = await response.json();
-
-    const videos = Array.isArray(data) ? data : [data];
-    const container = document.getElementById('videoContainer');
-    container.innerHTML = '';
-
-    videos.forEach(video => {
-      const card = document.createElement('div');
-      card.classList.add('video-card');
-
-      card.innerHTML = `
-        <video controls preload="metadata">
-          <source src="${video.url}" type="video/mp4">
-          Your browser does not support HTML5 video.
-        </video>
-        <div class="video-info">
-          <p><strong>Width:</strong> ${video.width}</p>
-          <p><strong>Height:</strong> ${video.height}</p>
-          <p><strong>Duration:</strong> ${video.duration}s</p>
-        </div>
-      `;
-
-      container.appendChild(card);
+    const response = await fetch('https://ok.newhqmovies.workers.dev', {
+      headers: { 'User-Agent': 'Mozilla/5.0' }  // Cloudflare sometimes requires UA
     });
-  } catch (err) {
-    console.error('Error fetching videos:', err);
-    document.getElementById('videoContainer').innerHTML = '<p style="color:red;">Failed to load videos.</p>';
+
+    if (!response.ok) {
+      return res.status(500).json({ error: "Upstream API error", status: response.status });
+    }
+
+    const text = await response.text();
+
+    // Verify the API actually returned JSON
+    try {
+      const data = JSON.parse(text);
+      return res.status(200).json(data);
+    } catch (e) {
+      return res.status(500).json({
+        error: "Invalid JSON returned by upstream API",
+        raw: text.slice(0, 200)
+      });
+    }
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: "Server crashed", message: error.message });
   }
 }
-
-// Fetch videos on page load
-fetchVideos();
